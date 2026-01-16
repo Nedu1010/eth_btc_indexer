@@ -3,6 +3,8 @@ import btcController from '../controllers/btc.controller';
 
 const router = Router();
 
+router.get('/blocks', btcController.getBlocks);
+router.get('/transactions', btcController.getTransactions);
 router.get('/block/:height', btcController.getBlock);
 router.get('/transaction/:txid', btcController.getTransaction);
 router.get('/latest', btcController.getLatestBlock);

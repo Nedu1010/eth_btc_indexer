@@ -184,12 +184,88 @@ class EthService {
                     value: true,
                     gasPrice: true,
                     maxFeePerGas: true,
+                    gas: true,
                     createdAt: true,
                     blockId: true,
                 },
             });
         } catch (error: any) {
             logger.error(`Error retrieving recent ETH transactions: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Get accounts (unique addresses) with transaction counts
+     */
+    async getAccounts(limit: number = 50) {
+        try {
+            // Get unique addresses from both fromAddress and toAddress
+            const addresses = await prisma.$queryRaw<{ address: string; tx_count: bigint; last_activity: Date }[]>`
+                SELECT 
+                    address,
+                    COUNT(*) as tx_count,
+                    MAX(created_at) as last_activity
+                FROM (
+                    SELECT from_address as address, created_at
+                    FROM eth_transactions
+                    UNION ALL
+                    SELECT to_address as address, created_at
+                    FROM eth_transactions
+                    WHERE to_address IS NOT NULL
+                ) as all_addresses
+                GROUP BY address
+                ORDER BY tx_count DESC
+                LIMIT ${limit}
+            `;
+
+            return addresses.map((addr) => ({
+                address: addr.address,
+                transactionCount: Number(addr.tx_count),
+                lastActivity: addr.last_activity.toISOString(),
+            }));
+        } catch (error: any) {
+            logger.error(`Error retrieving ETH accounts: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Get account details (transactions for a specific address)
+     */
+    async getAccountDetails(address: string, limit: number = 50) {
+        try {
+            const transactions = await prisma.ethTransaction.findMany({
+                where: {
+                    OR: [
+                        { fromAddress: address },
+                        { toAddress: address },
+                    ],
+                },
+                orderBy: { createdAt: 'desc' },
+                take: limit,
+                select: {
+                    id: true,
+                    hash: true,
+                    fromAddress: true,
+                    toAddress: true,
+                    value: true,
+                    gas: true,
+                    gasPrice: true,
+                    maxFeePerGas: true,
+                    createdAt: true,
+                    block: {
+                        select: {
+                            number: true,
+                            timestamp: true,
+                        },
+                    },
+                },
+            });
+
+            return transactions;
+        } catch (error: any) {
+            logger.error(`Error retrieving account details for ${address}: ${error.message}`);
             throw error;
         }
     }

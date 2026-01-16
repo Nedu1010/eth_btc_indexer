@@ -143,6 +143,51 @@ class BtcController {
             });
         }
     }
+    /**
+     * Get paginated blocks
+     */
+    async getBlocks(req: Request, res: Response) {
+        try {
+            const page = parseInt(req.query.page as string) || 1;
+            const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+
+            const result = await btcService.getBlocks(page, limit);
+
+            return res.json({
+                success: true,
+                data: result,
+            });
+        } catch (error: any) {
+            logger.error(`Error in getBlocks: ${error.message}`);
+            return res.status(500).json({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    }
+
+    /**
+     * Get paginated transactions
+     */
+    async getTransactions(req: Request, res: Response) {
+        try {
+            const page = parseInt(req.query.page as string) || 1;
+            const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+
+            const result = await btcService.getTransactions(page, limit);
+
+            return res.json({
+                success: true,
+                data: result,
+            });
+        } catch (error: any) {
+            logger.error(`Error in getTransactions: ${error.message}`);
+            return res.status(500).json({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    }
 }
 
 export default new BtcController();

@@ -58,6 +58,13 @@ export interface EthTransaction {
     createdAt: string;
 }
 
+// Ethereum Account
+export interface Account {
+    address: string;
+    transactionCount: number;
+    lastActivity: string;
+}
+
 // API Response
 export interface ApiResponse<T> {
     success: boolean;

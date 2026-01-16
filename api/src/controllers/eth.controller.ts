@@ -143,6 +143,102 @@ class EthController {
             });
         }
     }
+
+    /**
+     * Get accounts (unique addresses with transaction counts)
+     */
+    async getAccounts(req: Request, res: Response) {
+        try {
+            const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+            const accounts = await ethService.getAccounts(limit);
+
+            return res.json({
+                success: true,
+                data: accounts,
+            });
+        } catch (error: any) {
+            logger.error(`Error in getAccounts: ${error.message}`);
+            return res.status(500).json({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    }
+
+    /**
+     * Get account details (transactions for a specific address)
+     */
+    async getAccountDetails(req: Request, res: Response) {
+        try {
+            const { address } = req.params;
+
+            if (!address) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Address is required',
+                });
+            }
+
+            const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+            const transactions = await ethService.getAccountDetails(address as string, limit);
+
+            return res.json({
+                success: true,
+                data: transactions,
+            });
+        } catch (error: any) {
+            logger.error(`Error in getAccountDetails: ${error.message}`);
+            return res.status(500).json({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    }
+    /**
+     * Get paginated blocks
+     */
+    async getBlocks(req: Request, res: Response) {
+        try {
+            const page = parseInt(req.query.page as string) || 1;
+            const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+
+            const result = await ethService.getBlocks(page, limit);
+
+            return res.json({
+                success: true,
+                data: result,
+            });
+        } catch (error: any) {
+            logger.error(`Error in getBlocks: ${error.message}`);
+            return res.status(500).json({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    }
+
+    /**
+     * Get paginated transactions
+     */
+    async getTransactions(req: Request, res: Response) {
+        try {
+            const page = parseInt(req.query.page as string) || 1;
+            const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+
+            const result = await ethService.getTransactions(page, limit);
+
+            return res.json({
+                success: true,
+                data: result,
+            });
+        } catch (error: any) {
+            logger.error(`Error in getTransactions: ${error.message}`);
+            return res.status(500).json({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    }
 }
 
 export default new EthController();
