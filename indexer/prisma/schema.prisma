@@ -1,0 +1,102 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Bitcoin Models
+model BtcBlock {
+  id            String           @id @default(uuid())
+  hash          String           @unique
+  height        Int              @unique
+  timestamp     DateTime
+  txCount       Int
+  size          Int?
+  weight        Int?
+  version       Int?
+  merkleRoot    String?
+  nonce         BigInt?
+  difficulty    Float?
+  transactions  BtcTransaction[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([height])
+  @@index([timestamp])
+  @@map("btc_blocks")
+}
+
+model BtcTransaction {
+  id        String    @id @default(uuid())
+  txid      String    @unique
+  blockId   String
+  block     BtcBlock  @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  version   Int?
+  size      Int?
+  weight    Int?
+  fee       BigInt?
+  inputCount Int?
+  outputCount Int?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([txid])
+  @@index([blockId])
+  @@map("btc_transactions")
+}
+
+// Ethereum Models
+model EthBlock {
+  id             String           @id @default(uuid())
+  hash           String           @unique
+  number         BigInt           @unique
+  timestamp      DateTime
+  parentHash     String
+  miner          String
+  gasLimit       BigInt
+  gasUsed        BigInt
+  baseFeePerGas  BigInt?
+  difficulty     BigInt?
+  totalDifficulty BigInt?
+  size           Int?
+  txCount        Int
+  transactions   EthTransaction[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([number])
+  @@index([timestamp])
+  @@map("eth_blocks")
+}
+
+model EthTransaction {
+  id              String    @id @default(uuid())
+  hash            String    @unique
+  blockId         String
+  block           EthBlock  @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  fromAddress     String
+  toAddress       String?
+  value           String
+  gas             BigInt
+  gasPrice        BigInt?
+  maxFeePerGas    BigInt?
+  maxPriorityFeePerGas BigInt?
+  nonce           Int
+  transactionIndex Int
+  input           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([hash])
+  @@index([blockId])
+  @@index([fromAddress])
+  @@index([toAddress])
+  @@map("eth_transactions")
+}

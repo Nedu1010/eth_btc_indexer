@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: btc_eth_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-indexer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-indexer123}
+      POSTGRES_DB: ${POSTGRES_DB:-blockchain_indexer}
+    ports:
+      - "172.17.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - indexer-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-indexer}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    ports:
+      - "5051:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - indexer-network
+    depends_on:
+      - postgres
+
+  bitcoind:
+    image: ruimarinho/bitcoin-core:24
+    container_name: bitcoind
+    ports:
+      - "8332:8332" # RPC port
+    volumes:
+      - bitcoin_data:/home/bitcoin/.bitcoin
+    command:
+      -printtoconsole
+      -server=1
+      -rpcuser=rpcuser
+      -rpcpassword=rpcpassword
+      -txindex=1
+      -rpcallowip=0.0.0.0/0
+      -rpcbind=0.0.0.0
+    networks:
+      - indexer-network
+
+  indexer:
+    build: .
+    container_name: indexer
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-indexer}:${POSTGRES_PASSWORD:-indexer123}@postgres:5432/${POSTGRES_DB:-blockchain_indexer}
+      BTC_RPC_URL: http://bitcoind:8332
+      BTC_RPC_USER: rpcuser
+      BTC_RPC_PASSWORD: rpcpassword
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bitcoind:
+        condition: service_started
+    networks:
+      - indexer-network
+
+volumes:
+  postgres_data:
+    driver: local
+  bitcoin_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  indexer-network:
+    driver: bridge
+    name: indexer-network

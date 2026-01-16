@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: api
+    ports:
+      - "3000:3000"
+    environment:
+      # Connect to postgres via the external network or host
+      DATABASE_URL: postgres://${POSTGRES_USER:-indexer}:${POSTGRES_PASSWORD:-indexer123}@btc_eth_postgres:5432/${POSTGRES_DB:-blockchain_indexer}
+    networks:
+      - indexer-network
+
+networks:
+  indexer-network:
+    external: true
