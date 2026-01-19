@@ -18,6 +18,78 @@ class EthService {
         }
     }
 
+    private client: any;
+    private rpcUrl: string = '';
+
+    constructor() {
+        // Client initialization moved to ensureClient to allow for env vars to load
+    }
+
+    private ensureClient() {
+        if (this.client) return;
+
+        const apiKey = process.env.INFURA_RPC_API_KEY;
+        this.rpcUrl = apiKey ? `https://mainnet.infura.io/v3/${apiKey}` : '';
+
+        if (this.rpcUrl) {
+            // dynamic import to avoid issues if axios isn't available (though it should be)
+            const axios = require('axios');
+            this.client = axios.create({
+                baseURL: this.rpcUrl,
+                timeout: 30000,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+        } else {
+            logger.warn('INFURA_RPC_API_KEY not set');
+        }
+    }
+
+    /**
+     * Make a JSON-RPC call to Infura
+     */
+    private async rpcCall(method: string, params: any[] = []): Promise<any> {
+        this.ensureClient();
+
+        if (!this.client) {
+            logger.warn('RPC client not initialized (missing API key)');
+            return null;
+        }
+
+        try {
+            const response = await this.client.post('', {
+                jsonrpc: '2.0',
+                id: 1,
+                method,
+                params,
+            });
+
+            if (response.data.error) {
+                throw new Error(response.data.error.message);
+            }
+
+            return response.data.result;
+        } catch (error: any) {
+            logger.error(`RPC call failed for method ${method}: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Get address balance from Infura
+     */
+    async getBalance(address: string): Promise<string> {
+        try {
+            const balanceHex = await this.rpcCall('eth_getBalance', [address, 'latest']);
+            if (!balanceHex) return '0';
+            return BigInt(balanceHex).toString();
+        } catch (error: any) {
+            logger.warn(`Failed to fetch ETH balance for ${address}: ${error.message}`);
+            return '0';
+        }
+    }
+
     /**
      * Get transaction from database by hash
      */

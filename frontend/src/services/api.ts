@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { ApiResponse, BtcBlock, EthBlock, BtcTransaction, EthTransaction, Network, Account } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 class ApiService {
     async getLatestBlock(network: Network): Promise<BtcBlock | EthBlock | null> {
@@ -12,6 +12,30 @@ class ApiService {
             return response.data.data;
         } catch (error) {
             console.error(`Error fetching latest ${network} block:`, error);
+            return null;
+        }
+    }
+
+    async getBlock(network: Network, heightOrNumber: number | string): Promise<BtcBlock | EthBlock | null> {
+        try {
+            const response = await axios.get<ApiResponse<BtcBlock | EthBlock>>(
+                `${API_URL}/api/${network}/block/${heightOrNumber}`
+            );
+            return response.data.data;
+        } catch (error) {
+            console.error(`Error fetching ${network} block ${heightOrNumber}:`, error);
+            return null;
+        }
+    }
+
+    async getTransaction(network: Network, txid: string): Promise<BtcTransaction | EthTransaction | null> {
+        try {
+            const response = await axios.get<ApiResponse<BtcTransaction | EthTransaction>>(
+                `${API_URL}/api/${network}/transaction/${txid}`
+            );
+            return response.data.data;
+        } catch (error) {
+            console.error(`Error fetching ${network} transaction ${txid}:`, error);
             return null;
         }
     }
@@ -55,16 +79,16 @@ class ApiService {
         }
     }
 
-    async getAccountDetails(address: string, limit: number = 50): Promise<EthTransaction[]> {
+    async getAccountDetails(network: Network, address: string, limit: number = 50): Promise<{ transactions: (BtcTransaction | EthTransaction)[], balance: string }> {
         try {
-            const response = await axios.get<ApiResponse<EthTransaction[]>>(
-                `${API_URL}/api/eth/account/${address}`,
+            const response = await axios.get<ApiResponse<{ transactions: (BtcTransaction | EthTransaction)[], balance: string }>>(
+                `${API_URL}/api/${network}/account/${address}`,
                 { params: { limit } }
             );
             return response.data.data;
         } catch (error) {
-            console.error(`Error fetching account details for ${address}:`, error);
-            return [];
+            console.error(`Error fetching account details for ${address} on ${network}:`, error);
+            return { transactions: [], balance: '0' };
         }
     }
 

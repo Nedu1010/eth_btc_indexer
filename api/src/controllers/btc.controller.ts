@@ -188,6 +188,41 @@ class BtcController {
             });
         }
     }
+    /**
+     * Get account details (transactions for a specific address)
+     */
+    async getAccountDetails(req: Request, res: Response) {
+        try {
+            const { address } = req.params;
+
+            if (!address) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Address is required',
+                });
+            }
+
+            const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+            const [transactions, balance] = await Promise.all([
+                btcService.getTransactionsByAddress(address as string, limit),
+                btcService.getBalance(address as string)
+            ]);
+
+            return res.json({
+                success: true,
+                data: {
+                    transactions,
+                    balance
+                },
+            });
+        } catch (error: any) {
+            logger.error(`Error in getAccountDetails: ${error.message}`);
+            return res.status(500).json({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    }
 }
 
 export default new BtcController();

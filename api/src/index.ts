@@ -27,6 +27,20 @@ app.use('/api/btc', btcRoutes);
 // @ts-ignore
 app.use('/api/eth', ethRoutes);
 
+// Serve frontend static files
+const frontendPath = path.join(__dirname, '../../frontend/dist');
+app.use(express.static(frontendPath));
+
+// Handle SPA routing - return index.html for all non-API routes
+// Handle SPA routing - return index.html for all non-API routes
+app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+        res.sendFile(path.join(frontendPath, 'index.html'));
+    } else {
+        next();
+    }
+});
+
 // Health check
 app.get('/health', (req, res) => {
     res.json({
@@ -62,7 +76,5 @@ async function startServer() {
     }
 }
 
-startServer();
 
-// Keep process alive
-process.stdin.resume();
+startServer();

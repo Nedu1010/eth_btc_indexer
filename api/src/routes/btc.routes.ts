@@ -10,5 +10,6 @@ router.get('/transaction/:txid', btcController.getTransaction);
 router.get('/latest', btcController.getLatestBlock);
 router.get('/recent-blocks', btcController.getRecentBlocks);
 router.get('/recent-transactions', btcController.getRecentTransactions);
+router.get('/account/:address', btcController.getAccountDetails);
 
 export default router;

@@ -157,6 +157,8 @@ class BtcService {
                     fee: BigInt(txData.fee || 0),
                     inputCount: txData.vin.length,
                     outputCount: txData.vout.length,
+                    vin: txData.vin,
+                    vout: txData.vout,
                 },
             });
         } catch (error: any) {

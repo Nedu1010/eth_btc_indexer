@@ -2,6 +2,7 @@
 export type Network = 'btc' | 'eth';
 
 // Bitcoin Block
+// Bitcoin Block
 export interface BtcBlock {
     id: string;
     hash: string;
@@ -11,6 +12,7 @@ export interface BtcBlock {
     size?: number;
     weight?: number;
     difficulty?: number;
+    transactions?: BtcTransaction[];
 }
 
 // Ethereum Block
@@ -26,6 +28,7 @@ export interface EthBlock {
     baseFeePerGas?: bigint | string;
     size?: number;
     txCount: number;
+    transactions?: EthTransaction[];
 }
 
 // Bitcoin Transaction
@@ -39,6 +42,20 @@ export interface BtcTransaction {
     fee?: bigint | string;
     inputCount?: number;
     outputCount?: number;
+    vin?: {
+        txid: string;
+        vout: number;
+        prevout: {
+            scriptpubkey_address: string;
+            value: number;
+        } | null;
+        is_coinbase: boolean;
+        sequence: number;
+    }[];
+    vout?: {
+        scriptpubkey_address: string;
+        value: number;
+    }[];
     createdAt: string;
 }
 

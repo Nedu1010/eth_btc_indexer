@@ -180,11 +180,17 @@ class EthController {
             }
 
             const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
-            const transactions = await ethService.getAccountDetails(address as string, limit);
+            const [transactions, balance] = await Promise.all([
+                ethService.getAccountDetails(address as string, limit),
+                ethService.getBalance(address as string)
+            ]);
 
             return res.json({
                 success: true,
-                data: transactions,
+                data: {
+                    transactions,
+                    balance
+                },
             });
         } catch (error: any) {
             logger.error(`Error in getAccountDetails: ${error.message}`);

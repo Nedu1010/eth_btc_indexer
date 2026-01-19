@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { Network, BtcBlock, EthBlock, BtcTransaction, EthTransaction } from './types';
 import apiService from './services/api';
-import { formatBtcValue, truncateHash } from './utils';
+import { formatBtcValue, truncateHash, formatEthValue } from './utils';
 import './index.css';
 
 function App() {
@@ -14,9 +14,12 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   
   // Navigation state
-  const [activeView, setActiveView] = useState<'list' | 'block-detail' | 'transaction-detail'>('list');
-  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
-  const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<'list' | 'block-detail' | 'transaction-detail' | 'account-detail'>('list');
+  const [selectedBlock, setSelectedBlock] = useState<BtcBlock | EthBlock | null>(null);
+  const [selectedTransaction, setSelectedTransaction] = useState<BtcTransaction | EthTransaction | null>(null);
+  const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
+  const [accountTransactions, setAccountTransactions] = useState<(BtcTransaction | EthTransaction)[]>([]);
+  const [accountBalance, setAccountBalance] = useState<string>('0');
   
   // Pagination state for different tables
   const [blocksPage, setBlocksPage] = useState(1);
@@ -31,20 +34,91 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Navigation handlers
-  const viewBlockDetail = (blockId: string) => {
-    setSelectedBlockId(blockId);
+  const viewBlockDetail = async (blockId: string, preloadedBlock?: BtcBlock | EthBlock) => {
     setActiveView('block-detail');
+    
+    if (preloadedBlock) {
+      setSelectedBlock(preloadedBlock);
+      return;
+    }
+
+    const summary = recentBlocks.find(b => b.id === blockId) || (latestBlock?.id === blockId ? latestBlock : null);
+    if (summary) {
+      setLoading(true);
+      try {
+        const height = 'height' in summary ? summary.height : summary.number;
+        const fullBlock = await apiService.getBlock(network, height.toString());
+        setSelectedBlock(fullBlock);
+      } catch (err) {
+        console.error('Error fetching block details:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
   };
 
-  const viewTransactionDetail = (txId: string) => {
-    setSelectedTxId(txId);
+  const viewTransactionDetail = async (txId: string, preloadedTx?: BtcTransaction | EthTransaction) => {
     setActiveView('transaction-detail');
+
+    if (preloadedTx && (preloadedTx as any).vin) {
+      setSelectedTransaction(preloadedTx);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Find the txid from the ID
+      const summary = recentTransactions.find(t => t.id === txId) || accountTransactions.find(t => t.id === txId);
+      const txid = summary ? (network === 'btc' ? (summary as BtcTransaction).txid : (summary as EthTransaction).hash) : txId;
+      
+      const fullTx = await apiService.getTransaction(network, txid);
+      setSelectedTransaction(fullTx);
+    } catch (err) {
+      console.error('Error fetching transaction details:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const viewAccountDetail = async (address: string) => {
+    setSelectedAddress(address);
+    setLoading(true);
+    try {
+      const { transactions, balance } = await apiService.getAccountDetails(network, address);
+      setAccountTransactions(transactions);
+      setAccountBalance(balance);
+      setActiveView('account-detail');
+    } catch (err) {
+      console.error('Error fetching account details:', err);
+      alert('Failed to fetch account details');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const backToList = () => {
     setActiveView('list');
-    setSelectedBlockId(null);
-    setSelectedTxId(null);
+    setSelectedBlock(null);
+    setSelectedTransaction(null);
+    setSelectedAddress(null);
+  };
+
+  const getBtcAddress = (tx: BtcTransaction, type: 'from' | 'to'): string => {
+    if (type === 'from') {
+      if (!tx.vin || tx.vin.length === 0) return 'Coinbase';
+      const firstInput = tx.vin[0];
+      if (firstInput.prevout && firstInput.prevout.scriptpubkey_address) {
+        return firstInput.prevout.scriptpubkey_address;
+      }
+      return 'Coinbase';
+    } else {
+      if (!tx.vout || tx.vout.length === 0) return 'Unknown';
+      const firstOutput = tx.vout[0];
+      if (firstOutput.scriptpubkey_address) {
+        return firstOutput.scriptpubkey_address;
+      }
+      return 'Unknown';
+    }
   };
 
   // Handle search on Enter key
@@ -67,7 +141,7 @@ function App() {
         if (response.ok) {
           const data = await response.json();
           if (data.success && data.data) {
-            viewBlockDetail(data.data.id);
+            viewBlockDetail(data.data.id, data.data);
             setSearchQuery(''); // Clear search
             return;
           }
@@ -83,7 +157,7 @@ function App() {
       if (txResponse.ok) {
         const txData = await txResponse.json();
         if (txData.success && txData.data) {
-          viewTransactionDetail(txData.data.id);
+          viewTransactionDetail(txData.data.id, txData.data);
           setSearchQuery(''); // Clear search
           return;
         }
@@ -279,7 +353,7 @@ function App() {
             <input
               type="text"
               className="search-input"
-              placeholder="Search by hash or BN (Press Enter)"
+              placeholder="hash or block number (Press Enter)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleSearchEnter}
@@ -305,8 +379,8 @@ function App() {
       
       <div className="container">
         {/* Block Detail View */}
-        {activeView === 'block-detail' && selectedBlockId && (() => {
-          const block = recentBlocks.find(b => b.id === selectedBlockId);
+        {activeView === 'block-detail' && selectedBlock && (() => {
+          const block = selectedBlock;
           if (!block) return <p>Block not found</p>;
           
           return (
@@ -364,14 +438,99 @@ function App() {
                     </>
                   )}
                 </div>
+
+
+                <h2 className="section-title" style={{ marginTop: '2rem' }}>Transactions</h2>
+                <div className="data-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Tx Hash</th>
+                        <th>Time</th>
+                        {network === 'btc' && (
+                          <>
+                            <th>Fee</th>
+                            <th>From</th>
+                            <th>To</th>
+                          </>
+                        )}
+                        {network === 'eth' && (
+                          <>
+                            <th>From</th>
+                            <th>To</th>
+                            <th>Value</th>
+                          </>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {block.transactions && block.transactions.length > 0 ? (
+                        block.transactions.map((tx) => {
+                          const txHash = network === 'btc' ? (tx as BtcTransaction).txid : (tx as EthTransaction).hash;
+                          return (
+                            <tr key={tx.id}>
+                              <td>
+                                <span 
+                                  className="hash clickable" 
+                                  title={txHash}
+                                  onClick={() => viewTransactionDetail(tx.id)}
+                                  style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                >
+                                  {truncateHash(txHash)}
+                                </span>
+                              </td>
+                              <td className="time-ago">{formatTime(tx.createdAt)}</td>
+                              {network === 'btc' && (
+                                <>
+                                  <td>{formatBtcValue((tx as BtcTransaction).fee)}</td>
+                                  <td>
+                                    <span 
+                                      className="hash clickable" 
+                                      title={getBtcAddress(tx as BtcTransaction, 'from')}
+                                      onClick={() => viewAccountDetail(getBtcAddress(tx as BtcTransaction, 'from'))}
+                                      style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                    >
+                                      {truncateHash(getBtcAddress(tx as BtcTransaction, 'from'))}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span 
+                                      className="hash clickable" 
+                                      title={getBtcAddress(tx as BtcTransaction, 'to')}
+                                      onClick={() => viewAccountDetail(getBtcAddress(tx as BtcTransaction, 'to'))}
+                                      style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                    >
+                                      {truncateHash(getBtcAddress(tx as BtcTransaction, 'to'))}
+                                    </span>
+                                  </td>
+                                </>
+                              )}
+                              {network === 'eth' && (
+                                <>
+                                  <td><span className="hash" title={(tx as EthTransaction).fromAddress}>{truncateHash((tx as EthTransaction).fromAddress)}</span></td>
+                                  <td><span className="hash" title={(tx as EthTransaction).toAddress || ''}>{truncateHash((tx as EthTransaction).toAddress)}</span></td>
+                                  <td>{formatEthValue((tx as EthTransaction).value)}</td>
+                                </>
+                              )}
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>No transactions found in this block</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </>
           );
         })()}
 
         {/* Transaction Detail View */}
-        {activeView === 'transaction-detail' && selectedTxId && (() => {
-          const tx = recentTransactions.find(t => t.id === selectedTxId);
+        {activeView === 'transaction-detail' && selectedTransaction && (() => {
+          const tx = selectedTransaction;
           if (!tx) return <p>Transaction not found</p>;
           
           return (
@@ -394,19 +553,95 @@ function App() {
                     <>
                       <div className="detail-row">
                         <span className="detail-label">Fee:</span>
-                        <span className="detail-value">{formatBtcValue((tx as BtcTransaction).fee)} satoshis</span>
+                        <span className="detail-value">{formatBtcValue((tx as BtcTransaction).fee)} BTC</span>
                       </div>
                       <div className="detail-row">
                         <span className="detail-label">Size:</span>
                         <span className="detail-value">{(tx as BtcTransaction).size} bytes</span>
                       </div>
                       <div className="detail-row">
-                        <span className="detail-label">Inputs:</span>
-                        <span className="detail-value">{(tx as BtcTransaction).inputCount}</span>
+                        <span className="detail-label">From:</span>
+                        <span className="detail-value hash clickable" onClick={() => viewAccountDetail(getBtcAddress(tx as BtcTransaction, 'from'))} style={{ cursor: 'pointer', textDecoration: 'underline' }}>
+                          {getBtcAddress(tx as BtcTransaction, 'from')}
+                        </span>
                       </div>
                       <div className="detail-row">
-                        <span className="detail-label">Outputs:</span>
-                        <span className="detail-value">{(tx as BtcTransaction).outputCount}</span>
+                        <span className="detail-label">To:</span>
+                        <span className="detail-value hash clickable" onClick={() => viewAccountDetail(getBtcAddress(tx as BtcTransaction, 'to'))} style={{ cursor: 'pointer', textDecoration: 'underline' }}>
+                          {getBtcAddress(tx as BtcTransaction, 'to')}
+                        </span>
+                      </div>
+                      
+                      <div className="detail-section" style={{ marginTop: '2rem', borderTop: '1px solid #eee', paddingTop: '1rem' }}>
+                        <h3 style={{ marginBottom: '1rem' }}>From ({((tx as BtcTransaction).vin || []).length})</h3>
+                        <div className="data-table">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Address</th>
+                                <th style={{ textAlign: 'right' }}>Value</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {((tx as BtcTransaction).vin || []).map((input, idx) => (
+                                <tr key={idx}>
+                                  <td>
+                                    <span className="hash">
+                                      {input.prevout ? (
+                                        <span 
+                                          className="clickable" 
+                                          onClick={() => viewAccountDetail(input.prevout!.scriptpubkey_address)}
+                                          style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                        >
+                                          {input.prevout.scriptpubkey_address}
+                                        </span>
+                                      ) : 'Coinbase'}
+                                    </span>
+                                  </td>
+                                  <td style={{ textAlign: 'right' }}>
+                                    {input.prevout ? `${formatBtcValue(input.prevout.value)} BTC` : 'N/A'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="detail-section" style={{ marginTop: '2rem', borderTop: '1px solid #eee', paddingTop: '1rem' }}>
+                        <h3 style={{ marginBottom: '1rem' }}>To ({((tx as BtcTransaction).vout || []).length})</h3>
+                        <div className="data-table">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Address</th>
+                                <th style={{ textAlign: 'right' }}>Value</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {((tx as BtcTransaction).vout || []).map((output, idx) => (
+                                <tr key={idx}>
+                                  <td>
+                                    <span className="hash">
+                                      {output.scriptpubkey_address ? (
+                                        <span 
+                                          className="clickable" 
+                                          onClick={() => viewAccountDetail(output.scriptpubkey_address)}
+                                          style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                        >
+                                          {output.scriptpubkey_address}
+                                        </span>
+                                      ) : 'Unknown Address'}
+                                    </span>
+                                  </td>
+                                  <td style={{ textAlign: 'right' }}>
+                                    {formatBtcValue(output.value)} BTC
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     </>
                   )}
@@ -414,15 +649,33 @@ function App() {
                     <>
                       <div className="detail-row">
                         <span className="detail-label">From:</span>
-                        <span className="detail-value hash">{(tx as EthTransaction).fromAddress}</span>
+                        <span className="detail-value hash">
+                          <span 
+                            className="clickable" 
+                            onClick={() => viewAccountDetail((tx as EthTransaction).fromAddress)}
+                            style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                          >
+                            {(tx as EthTransaction).fromAddress}
+                          </span>
+                        </span>
                       </div>
                       <div className="detail-row">
                         <span className="detail-label">To:</span>
-                        <span className="detail-value hash">{(tx as EthTransaction).toAddress || 'Contract Creation'}</span>
+                        <span className="detail-value hash">
+                          {(tx as EthTransaction).toAddress ? (
+                            <span 
+                              className="clickable" 
+                              onClick={() => viewAccountDetail((tx as EthTransaction).toAddress!)}
+                              style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                              {(tx as EthTransaction).toAddress}
+                            </span>
+                          ) : 'Contract Creation'}
+                        </span>
                       </div>
                       <div className="detail-row">
                         <span className="detail-label">Value:</span>
-                        <span className="detail-value">{(tx as EthTransaction).value} Wei</span>
+                        <span className="detail-value">{formatEthValue((tx as EthTransaction).value)}</span>
                       </div>
                       <div className="detail-row">
                         <span className="detail-label">Gas:</span>
@@ -430,7 +683,7 @@ function App() {
                       </div>
                       <div className="detail-row">
                         <span className="detail-label">Gas Price:</span>
-                        <span className="detail-value">{(tx as EthTransaction).gasPrice?.toString() || 'N/A'} Wei</span>
+                        <span className="detail-value">{formatEthValue((tx as EthTransaction).gasPrice?.toString())}</span>
                       </div>
                     </>
                   )}
@@ -439,6 +692,115 @@ function App() {
             </>
           );
         })()}
+
+        {/* Account Detail View */}
+        {activeView === 'account-detail' && selectedAddress && (
+          <>
+            <button className="back-btn" onClick={backToList}>← Back to {activeTab}</button>
+            <div className="detail-page">
+              <h1>Account Details - {network.toUpperCase()}</h1>
+              <div className="detail-card">
+                <div className="detail-row">
+                  <span className="detail-label">Address:</span>
+                  <span className="detail-value hash">{selectedAddress}</span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Balance:</span>
+                  <span className="detail-value">
+                    {network === 'btc' 
+                      ? `${formatBtcValue(accountBalance)} BTC` 
+                      : formatEthValue(accountBalance)
+                    }
+                  </span>
+                </div>
+              </div>
+
+              <h2 className="section-title" style={{ marginTop: '2rem' }}>Recent Transactions</h2>
+              <div className="data-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Tx Hash</th>
+                      <th>Time</th>
+                      {network === 'btc' && (
+                        <>
+                          <th>Fee</th>
+                          <th>From</th>
+                          <th>To</th>
+                        </>
+                      )}
+                      {network === 'eth' && (
+                        <>
+                          <th>From</th>
+                          <th>To</th>
+                          <th>Value</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {accountTransactions.length > 0 ? (
+                      accountTransactions.map((tx) => {
+                        const txHash = network === 'btc' ? (tx as BtcTransaction).txid : (tx as EthTransaction).hash;
+                        return (
+                          <tr key={tx.id}>
+                            <td>
+                              <span 
+                                className="hash clickable" 
+                                title={txHash}
+                                onClick={() => viewTransactionDetail(tx.id)}
+                                style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                              >
+                                {truncateHash(txHash)}
+                              </span>
+                            </td>
+                            <td className="time-ago">{formatTime(tx.createdAt)}</td>
+                            {network === 'btc' && (
+                              <>
+                                <td>{formatBtcValue((tx as BtcTransaction).fee)}</td>
+                                <td>
+                                  <span 
+                                    className="hash clickable" 
+                                    title={getBtcAddress(tx as BtcTransaction, 'from')}
+                                    onClick={() => viewAccountDetail(getBtcAddress(tx as BtcTransaction, 'from'))}
+                                    style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                  >
+                                    {truncateHash(getBtcAddress(tx as BtcTransaction, 'from'))}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span 
+                                    className="hash clickable" 
+                                    title={getBtcAddress(tx as BtcTransaction, 'to')}
+                                    onClick={() => viewAccountDetail(getBtcAddress(tx as BtcTransaction, 'to'))}
+                                    style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                  >
+                                    {truncateHash(getBtcAddress(tx as BtcTransaction, 'to'))}
+                                  </span>
+                                </td>
+                              </>
+                            )}
+                            {network === 'eth' && (
+                              <>
+                                <td><span className="hash" title={(tx as EthTransaction).fromAddress}>{truncateHash((tx as EthTransaction).fromAddress)}</span></td>
+                                <td><span className="hash" title={(tx as EthTransaction).toAddress || ''}>{truncateHash((tx as EthTransaction).toAddress)}</span></td>
+                                <td>{formatEthValue((tx as EthTransaction).value)}</td>
+                              </>
+                            )}
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>No transactions found for this address</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* List Views */}
         {activeView === 'list' && (
@@ -645,8 +1007,8 @@ function App() {
                         {network === 'btc' && (
                           <>
                             <th>Fee</th>
-                            <th>Inputs</th>
-                            <th>Outputs</th>
+                            <th>From</th>
+                            <th>To</th>
                           </>
                         )}
                         {network === 'eth' && (
@@ -678,15 +1040,51 @@ function App() {
                               {network === 'btc' && (
                                 <>
                                   <td>{formatBtcValue((tx as BtcTransaction).fee)}</td>
-                                  <td>{(tx as BtcTransaction).inputCount}</td>
-                                  <td>{(tx as BtcTransaction).outputCount}</td>
+                                  <td>
+                                    <span 
+                                      className="hash clickable" 
+                                      title={getBtcAddress(tx as BtcTransaction, 'from')}
+                                      onClick={() => viewAccountDetail(getBtcAddress(tx as BtcTransaction, 'from'))}
+                                      style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                    >
+                                      {truncateHash(getBtcAddress(tx as BtcTransaction, 'from'))}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span 
+                                      className="hash clickable" 
+                                      title={getBtcAddress(tx as BtcTransaction, 'to')}
+                                      onClick={() => viewAccountDetail(getBtcAddress(tx as BtcTransaction, 'to'))}
+                                      style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                    >
+                                      {truncateHash(getBtcAddress(tx as BtcTransaction, 'to'))}
+                                    </span>
+                                  </td>
                                 </>
                               )}
                               {network === 'eth' && (
                                 <>
-                                  <td><span className="hash" title={(tx as EthTransaction).fromAddress}>{truncateHash((tx as EthTransaction).fromAddress)}</span></td>
-                                  <td><span className="hash" title={(tx as EthTransaction).toAddress || ''}>{truncateHash((tx as EthTransaction).toAddress)}</span></td>
-                                  <td>{(tx as EthTransaction).value}</td>
+                                  <td>
+                                    <span 
+                                      className="hash clickable" 
+                                      title={(tx as EthTransaction).fromAddress}
+                                      onClick={() => viewAccountDetail((tx as EthTransaction).fromAddress)}
+                                      style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                    >
+                                      {truncateHash((tx as EthTransaction).fromAddress)}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span 
+                                      className="hash clickable" 
+                                      title={(tx as EthTransaction).toAddress || ''}
+                                      onClick={() => (tx as EthTransaction).toAddress && viewAccountDetail((tx as EthTransaction).toAddress!)}
+                                      style={{ cursor: 'pointer', textDecoration: (tx as EthTransaction).toAddress ? 'underline' : 'none' }}
+                                    >
+                                      {truncateHash((tx as EthTransaction).toAddress)}
+                                    </span>
+                                  </td>
+                                  <td>{formatEthValue((tx as EthTransaction).value)}</td>
                                 </>
                               )}
                             </tr>
